@@ -8,6 +8,77 @@
 
 ![CI](../../actions/workflows/ci.yml/badge.svg)
 
+## Handoff สำหรับ AI / ผู้พัฒนาต่อ
+
+ส่วนนี้เขียนให้ AI ตัวอื่น (หรือคนใหม่) อ่านแล้วทำงานต่อได้ทันที ส่วนที่เหลือของไฟล์เป็นเอกสารสำหรับผู้ใช้
+
+### อ่านก่อนลงมือ
+- **อย่าเชื่อว่าไฟล์ทุกไฟล์สมบูรณ์** `app/electron/main.mjs` กับ `app/scripts/mint-ctl.sh` เคยว่างเปล่า (0 ไบต์) ตอน push ครั้งแรก แล้วถูกกู้คืนจากบันทึกเซสชัน ก่อนทำอะไรให้เช็กว่าสองไฟล์นี้มีเนื้อหา (`wc -c`) ถ้าเจอว่างอีกให้แจ้งผู้ใช้ อย่าเขียนทับเอง
+- ผู้ใช้สื่อสารเป็นภาษาไทย ตัวละครชื่อ "มิ้นท์" พูดไทยลงท้าย ค่ะ/นะคะ ข้อความที่พูดกับผู้ใช้และคอมเมนต์ต้นฉบับบางส่วนเป็นไทย ให้คงสไตล์เดิม
+- ข้อความ prompt ของ LLM, ชื่อ tool และแท็กอารมณ์เป็นของที่ผ่านการวัดผลมาแล้ว อย่าแก้โดยไม่รัน `backend/scripts/bench_*.py` เทียบก่อน-หลัง
+
+### สถานะปัจจุบัน (ตรวจเมื่อ 2026-11-09)
+| ตรวจ | ผล |
+|---|---|
+| `cd backend && uv run pytest -q` | 105 passed |
+| `uv run ruff check .` | ผ่าน |
+| `cd app && npm run typecheck` | ผ่าน |
+| `node --check app/electron/main.mjs` | ผ่าน |
+| รันแอปจริงบน Linux (Hyprland/Wayland) | เคยใช้งานได้ ไม่ได้รันซ้ำหลังกู้ไฟล์ |
+| รันบน Windows จริง | **ยังไม่เคย** (CI ผ่านอย่างเดียว) |
+
+ฟีเจอร์ที่ทำแล้ว: ฟัง/ตอบด้วยเสียงไทย, พูดแทรก (barge-in), อารมณ์ตัวละครจากแท็กใน LLM, เครื่องมือสั่งงาน 8 ตัวพร้อมระบบยืนยัน, ซ่อน/แสดงหน้าต่าง + tray, `mint-ctl`, ตัวจับเวลา
+
+### สถาปัตยกรรม
+Electron (renderer = Vite + TypeScript + PixiJS/Live2D) คุยกับ backend (FastAPI) ผ่าน WebSocket `ws://127.0.0.1:8765/ws` หนึ่งการเชื่อมต่อ = หนึ่ง `Session` Electron main เป็นคนสตาร์ทและดูแล backend (รีสตาร์ทเมื่อล้ม)
+
+**Client → server**
+- binary: PCM int16 mono 16 kHz (ไมค์ ส่งเป็นเฟรม แล้ว server ตัดเป็นเฟรมละ 1024 ไบต์ = 512 samples)
+- JSON: `{"type":"ping"}`, `{"type":"playback","playing":bool}` (บอกว่าเสียงตัวละครกำลังดัง เพื่อให้ barge-in เข้มขึ้น), `{"type":"confirm_reply","id":n,"ok":bool}`, `{"type":"user_text","text":"..."}`
+
+**Server → client** (ชนิดอยู่ใน `app/src/ws.ts` `ServerEvent`)
+- JSON: `state` (idle/listening/thinking/speaking), `transcript`, `reply` (`text`, `emotion`, `audio: bool`), `interrupt`, `metrics`, `confirm`, `confirm_done`, `error`, `pong`
+- binary: เสียง TTS **ต้องตามหลังข้อความ `reply` ที่มี `audio:true` ทันที** (ล็อกด้วย `_send_lock` ใน `session.py`) ห้ามแทรกข้อความอื่นระหว่างคู่นี้
+
+**ลำดับใน backend** (`backend/mint/`)
+| ไฟล์ | หน้าที่ |
+|---|---|
+| `server.py` | FastAPI, `/health`, `/ws`, `Deps` (สลับของจริงเป็นตัวจำลองในเทสต์ได้) |
+| `session.py` | หัวใจ: รับเสียง → endpointer → STT → (route เครื่องมือ หรือ stream LLM) → chunk เป็นประโยค → TTS ขนานแต่ส่งตามลำดับ, ยกเลิกคำตอบเก่าเมื่อผู้ใช้พูดใหม่, จัดการ confirm/ตัวจับเวลา |
+| `endpointing.py` | แปลงความน่าจะเป็นของ VAD เป็นช่วงคำพูด (Start/End/Discard) มี pre-roll และเกณฑ์ที่เข้มขึ้นตอน barge-in |
+| `vad.py`, `stt.py`, `llm.py`, `tts.py` | Silero VAD, faster-whisper, Ollama, edge-tts |
+| `chunker.py` | แยกสตรีมโทเค็นเป็นประโยค + ดึงแท็ก `[emotion]` |
+| `tools.py` | เครื่องมือ, schema, platform layer (Linux/Windows), `classify_confirmation`, `looks_like_command` |
+| `config.py` | ค่า env ทั้งหมด (ดูตารางด้านล่าง) |
+
+**ฝั่ง app:** `app/electron/main.mjs` (หน้าต่าง, tray, ดูแล backend, รับคำสั่ง `--toggle/--show/--hide/--quit` จากอินสแตนซ์ที่สอง), `app/src/main.ts` (จัดการ event ทั้งหมด), `audio/mic.ts` + `public/mic-worklet.js` (จับเสียง), `audio/player.ts` (เล่นเสียง + ปากขยับ), `live2d/` (โมเดล, อารมณ์)
+
+### การตัดสินใจออกแบบที่ไม่ชัดจากโค้ด
+- **Tool routing แยกเป็นการเรียก LLM สั้นๆ ก่อน** (`Llm.route`) เพราะ persona ยาวที่บังคับติดแท็กอารมณ์ทำให้ qwen2.5:3b เลิกเรียก tool เลย `looks_like_command` กรองประโยคคุยเล่นออกก่อนเพื่อประหยัด ~0.45 วินาที
+- **Tool ที่กระทบเครื่อง (`open_app`, `open_url`, `web_search`, `set_volume`) ต้องยืนยันด้วยเสียงหรือปุ่ม** ถ้าตอบไม่ชัดถือว่า "ไม่" และหมดอายุใน 60 วินาที ขณะรอยืนยัน STT ถูกใส่ hint คำตอบ (`CONFIRM_HINT`) ห้ามทำให้ tool ใหม่ที่มีผลข้างเคียงข้ามขั้นนี้
+- **AI ไม่มีทางรัน shell** เลือกได้แค่ tool ใน `_ALL_TOOLS` ชื่อแอปต้องตรงกับที่ติดตั้ง URL ต้อง http(s) ค่าตัวเลขถูกจำกัดช่วง ห้ามเพิ่ม tool แบบรันคำสั่งอิสระ
+- **TTS ใช้ hedged request** (`MINT_TTS_HEDGE_S`) เพราะ edge-tts ล้ม/ช้าเป็นระยะ และสังเคราะห์ทีละประโยคขนานกันแต่ส่งตามลำดับ
+- **ตัวจับเวลาผูกกับ Session** ปิดแอปหรือ backend รีสตาร์ทแล้วหาย (ยังไม่เก็บถาวร)
+- **ซ่อนหน้าต่าง = ไมค์พัก** ยังไม่มี wake word จึงไม่ฟังเบื้องหลัง
+- **`--no-sandbox` เฉพาะ Linux** (chrome-sandbox ไม่เป็น SUID) Windows/macOS เปิด sandbox ตามปกติ
+- `LLM threads = 8` มาจากการวัดบนเครื่องผู้พัฒนา (14 คอร์ตรรกะ) อย่าถือเป็นค่าที่ดีที่สุดสำหรับเครื่องอื่น
+
+### งานที่ยังค้าง / ไอเดียต่อ (เรียงตามความคุ้ม)
+1. ทดสอบบน Windows จริง (ไมค์/ลำโพง, `pycaw` ของ `set_volume`, `mint-ctl.cmd`, tray) แล้วอัปเดตตาราง "สถานะแพลตฟอร์ม"
+2. เสียงสำรองออฟไลน์เมื่อ edge-tts ใช้ไม่ได้ (ตอนนี้เหลือซับไตเติลอย่างเดียว)
+3. Wake word เพื่อให้ฟังเบื้องหลังตอนซ่อนหน้าต่างได้
+4. เก็บตัวจับเวลาให้อยู่รอดหลังรีสตาร์ท
+5. ทำให้พอร์ต backend ตั้งค่าได้ฝั่ง app (ตอนนี้ `MINT_PORT` เปลี่ยนได้ แต่ app ยังผูก 8765)
+6. ลองโมเดล LLM ใหญ่กว่า 3B หรือ routing ที่แม่นขึ้น (ดู `bench_tools.py` เป็นเกณฑ์วัด)
+7. ใส่ไฟล์ LICENSE (repo เป็น public แต่ยังไม่มี)
+
+### ข้อควรระวังเวลาแก้
+- ถ้าเปลี่ยนโปรโตคอล WebSocket ให้แก้ทั้ง `session.py`/`server.py`, `app/src/ws.ts` และ `app/src/main.ts` พร้อมกัน แล้วเพิ่มเทสต์ใน `backend/tests/test_server.py`
+- โค้ดที่ขึ้นกับ OS ให้อยู่ใน platform layer ของ `tools.py` และ `main.mjs` เท่านั้น แล้วทำให้เทสต์รันได้บนทั้ง Linux และ Windows (CI รันทั้งคู่)
+- เทสต์ต้องไม่พึ่ง Ollama/ไมค์/เน็ต ใช้ตัวจำลองผ่าน `Deps` เหมือนเดิม
+- อย่า commit: โมเดล Live2D, `app/public/lib/` (Cubism Core), `.env*`, `*.local` (อยู่ใน `.gitignore` แล้ว)
+- ก่อนบอกว่าเสร็จ ให้รันชุดตรวจในตารางสถานะด้านบนทั้งหมด
+
 ## สถานะแพลตฟอร์ม
 
 | | Linux | Windows |
