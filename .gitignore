@@ -1,0 +1,31 @@
+# --- dependencies / build output
+node_modules/
+.venv/
+dist/
+dist-electron/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# --- local config & machine-specific files
+.env
+.env.*
+!.env.example
+*.local
+.DS_Store
+Thumbs.db
+*.log
+
+# --- third-party assets that must NOT be redistributed from this repo
+# Live2D Cubism Core is under Live2D's own license: fetch it with `node scripts/fetch-cubism-core.mjs`
+app/public/lib/
+# Live2D models belong to their authors (and may carry watermarks / usage terms). Add your own.
+app/public/models/*
+!app/public/models/README.md
+*.zip
+*.moc3
+
+# --- generated test data / scratch
+stt_eval/

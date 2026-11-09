@@ -1,0 +1,48 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self' ws://127.0.0.1:8765; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:" />
+    <title>Mint</title>
+    <style>
+      html, body { margin: 0; background: transparent; overflow: hidden; font-family: sans-serif; }
+      canvas#stage { position: fixed; inset: 0; width: 100%; height: 100%; }
+      #debug { position: fixed; top: 8px; left: 8px; background: #000a; padding: 6px; border-radius: 6px; color: #fff; font-size: 12px; z-index: 10; }
+      #debug .row { margin-bottom: 4px; }
+      #debug button { margin: 1px; }
+      #reply { position: fixed; bottom: 80px; left: 8px; right: 8px; color: #ffd6ea; font-size: 18px; text-shadow: 0 0 4px #000, 0 0 4px #000; text-align: center; }
+      #transcript { position: fixed; bottom: 52px; left: 8px; right: 8px; color: #fff; font-size: 16px; text-shadow: 0 0 4px #000, 0 0 4px #000; text-align: center; }
+      #text { position: fixed; bottom: 6px; left: 8px; right: 70px; z-index: 10; background: #0008; color: #fff; border: 1px solid #fff4; border-radius: 4px; padding: 3px 6px; }
+      #meter { position: fixed; bottom: 36px; left: 8px; width: 60px; height: 5px; background: #fff3; border-radius: 3px; overflow: hidden; z-index: 10; }
+      #meter-fill { height: 100%; width: 0; background: #7dffb0; transition: width 60ms linear; }
+      #mic-hint { display: none; position: fixed; bottom: 100px; left: 8px; right: 8px; padding: 6px 8px; background: #b3261ecc; color: #fff; font-size: 12px; border-radius: 6px; text-align: center; z-index: 10; }
+      #drag { position: fixed; top: 0; left: 50%; transform: translateX(-50%); width: 90px; height: 14px; border-radius: 0 0 8px 8px; background: #fff3; -webkit-app-region: drag; z-index: 10; }
+      #hide, #power { position: fixed; top: 6px; z-index: 11; padding: 0 7px; line-height: 20px; }
+      #hide { right: 40px; }
+      #power { right: 8px; }
+      #latency { display: none; position: fixed; top: 34px; right: 8px; max-width: 60%; padding: 4px 8px; background: #000a; color: #9fe; font: 11px monospace; border-radius: 6px; z-index: 10; }
+      #confirm { display: none; position: fixed; left: 8px; right: 8px; bottom: 130px; padding: 8px 10px; background: #1d1b20ee; color: #fff; border: 1px solid #ff9bd0; border-radius: 8px; z-index: 12; text-align: center; font-size: 14px; }
+      #confirm button { margin: 6px 4px 0; padding: 3px 14px; }
+      #mute { position: fixed; bottom: 6px; right: 8px; z-index: 10; }
+      #status { position: fixed; bottom: 46px; left: 8px; font-size: 11px; opacity: .8; color: #fff; text-shadow: 0 0 4px #000; -webkit-app-region: drag; }
+    </style>
+  </head>
+  <body>
+    <canvas id="stage"></canvas>
+    <div id="reply"></div>
+    <div id="transcript"></div>
+    <div id="drag" title="drag to move"></div>
+    <button id="hide" title="ซ่อนไว้เบื้องหลัง (ไมค์พัก)">—</button>
+    <button id="power" title="ออกจากโปรแกรม (Ctrl+Q)">⏻</button>
+    <div id="confirm"><div id="confirm-text"></div><button id="confirm-yes">ตกลง</button><button id="confirm-no">ยกเลิก</button></div>
+    <div id="latency"></div>
+    <div id="mic-hint">ไม่ได้ยินเสียงจากไมค์เลย — ตรวจว่าไมค์ไม่ถูก mute หรือเลือกไมค์ผิดตัวในระบบเสียง</div>
+    <div id="meter"><div id="meter-fill"></div></div>
+    <input id="text" placeholder="พิมพ์ข้อความแล้วกด Enter" autocomplete="off" />
+    <button id="mute">mute</button>
+    <div id="status">connecting…</div>
+    <script src="./lib/live2dcubismcore.min.js"></script>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
